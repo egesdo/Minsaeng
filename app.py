@@ -5,123 +5,76 @@ from datetime import datetime, timezone, timedelta
 from urllib.parse import urlparse, quote
 import json
 
-# --- 애플 스타일 UI 및 강제 여백 제거 CSS ---
+# --- 기본 설정 ---
 st.set_page_config(page_title="Fin-Light | 통합 대시보드", layout="wide", initial_sidebar_state="expanded")
-st.markdown("""
-    <style>
-        /* 폰트 및 전체 배경 */
-        @import url('https://cdn.jsdelivr.net/gh/orioncactus/pretendard/dist/web/variable/pretendardvariable.css');
-        html, body, [class*="css"], .stApp {
-            font-family: 'Pretendard Variable', -apple-system, BlinkMacSystemFont, system-ui, Roboto, sans-serif !important;
-            background-color: #FBFBFD !important;
-        }
-        
-        /* 워터마크 및 헤더/푸터 완벽 제거 */
-        header[data-testid="stHeader"] { display: none !important; } 
-        footer { display: none !important; } 
-        .stDeployButton { display: none !important; } 
-        #MainMenu { display: none !important; }
-        
-        /* 메인 컨테이너 여백 0 강제화 */
-        .block-container {
-            padding: 0rem !important;
-            margin: 0rem !important;
-            max-width: 100% !important;
-            width: 100% !important;
-        }
-        
-        /* 사이드바 상단 여백 제거 및 디자인 */
-        [data-testid="stSidebar"] {
-            background-color: #FFFFFF !important;
-            border-right: 1px solid #E5E5EA !important;
-        }
-        [data-testid="stSidebar"] > div:first-child {
-            padding-top: 1.5rem !important; 
-        }
-        
-        /* Apple 스타일 UI 요소 */
-        .stTextInput input, .stTextArea textarea {
-            border-radius: 10px !important;
-            border: 1px solid #D2D2D7 !important;
-            transition: all 0.2s ease;
-        }
-        .stTextInput input:focus, .stTextArea textarea:focus {
-            border-color: #0071E3 !important;
-            box-shadow: 0 0 0 3px rgba(0, 113, 227, 0.15) !important;
-        }
-        .stButton > button {
-            border-radius: 980px !important; 
-            background-color: #0071E3 !important;
-            color: #FFFFFF !important;
-            border: none !important;
-            font-weight: 600 !important;
-            padding: 0.5rem 1rem !important;
-            transition: all 0.2s ease !important;
-            width: 100%;
-        }
-        .stButton > button:hover {
-            background-color: #0077ED !important;
-            transform: scale(0.98);
-        }
 
-        /* Fin-Light 타이틀 박스 */
-        .apple-title-box {
-            background: linear-gradient(135deg, #F5F5F7 0%, #FFFFFF 100%);
-            border: 1px solid #E5E5EA;
-            border-radius: 16px;
-            padding: 18px 15px;
-            text-align: center;
-            margin-bottom: 25px;
-            box-shadow: 0 4px 15px rgba(0, 0, 0, 0.03);
-        }
-        .apple-title-text {
-            font-size: 22px;
-            font-weight: 800;
-            color: #1D1D1F;
-            letter-spacing: -0.5px;
-        }
-        .apple-subtitle-text {
-            font-size: 11px;
-            color: #86868B;
-            margin-top: 4px;
-            font-weight: 500;
-        }
+# 상태 초기화 (뷰 모드)
+if 'view_mode' not in st.session_state:
+    st.session_state.view_mode = "AI"
 
-        /* 4분할 화면용 커스텀 그리드 */
-        .perfect-grid {
-            display: flex;
-            flex-wrap: wrap;
-            width: 100%;
-            height: 100vh;
-        }
-        .perfect-grid iframe {
-            width: 50%;
-            height: 50vh;
-            border: 1px solid #E5E5EA;
-            border-top: none;
-            border-left: none;
-            box-sizing: border-box;
-            background-color: #FFFFFF;
-        }
-        
-        /* 엔티티 태그 스타일 */
-        .entity-tag {
-            background-color: #E8F0FE; 
-            color: #1967D2; 
-            padding: 3px 8px; 
-            border-radius: 6px; 
-            font-size: 11px; 
-            font-weight: 700; 
-            margin-right: 5px; 
-            display: inline-block;
-            margin-bottom: 5px;
-        }
-        /* AI 결과 박스 패딩 */
-        .ai-result-container { padding: 30px; max-width: 1200px; margin: 0 auto; }
-    </style>
-""", unsafe_allow_html=True)
+# --- 동적 CSS 적용 ---
+# 애플 스타일 기본 CSS (공통 적용)
+base_css = """
+    @import url('https://cdn.jsdelivr.net/gh/orioncactus/pretendard/dist/web/variable/pretendardvariable.css');
+    html, body, [class*="css"], .stApp {
+        font-family: 'Pretendard Variable', -apple-system, BlinkMacSystemFont, system-ui, Roboto, sans-serif !important;
+        background-color: #FBFBFD !important;
+    }
+    header[data-testid="stHeader"], footer, .stDeployButton, #MainMenu { display: none !important; } 
+    
+    [data-testid="stSidebar"] {
+        background-color: #FFFFFF !important;
+        border-right: 1px solid #E5E5EA !important;
+    }
+    [data-testid="stSidebar"] > div:first-child { padding-top: 1.5rem !important; }
+    
+    .stTextInput input, .stTextArea textarea {
+        border-radius: 10px !important;
+        border: 1px solid #D2D2D7 !important;
+        transition: all 0.2s ease;
+    }
+    .stTextInput input:focus, .stTextArea textarea:focus {
+        border-color: #0071E3 !important;
+        box-shadow: 0 0 0 3px rgba(0, 113, 227, 0.15) !important;
+    }
+    .stButton > button {
+        border-radius: 980px !important; 
+        background-color: #0071E3 !important;
+        color: #FFFFFF !important;
+        border: none !important;
+        font-weight: 600 !important;
+        padding: 0.5rem 1rem !important;
+        width: 100%;
+    }
+    .stButton > button:hover {
+        background-color: #0077ED !important;
+        transform: scale(0.98);
+    }
+    .apple-title-box {
+        background: linear-gradient(135deg, #F5F5F7 0%, #FFFFFF 100%);
+        border: 1px solid #E5E5EA;
+        border-radius: 16px;
+        padding: 18px 15px;
+        text-align: center;
+        margin-bottom: 25px;
+        box-shadow: 0 4px 15px rgba(0, 0, 0, 0.03);
+    }
+    .apple-title-text { font-size: 22px; font-weight: 800; color: #1D1D1F; letter-spacing: -0.5px; }
+    .apple-subtitle-text { font-size: 11px; color: #86868B; margin-top: 4px; font-weight: 500; }
+    .perfect-grid { display: flex; flex-wrap: wrap; width: 100%; height: 100vh; }
+    .perfect-grid iframe { width: 50%; height: 50vh; border: 1px solid #E5E5EA; border-top: none; border-left: none; box-sizing: border-box; background-color: #FFFFFF; }
+    .entity-tag { background-color: #E8F0FE; color: #1967D2; padding: 3px 8px; border-radius: 6px; font-size: 11px; font-weight: 700; margin-right: 5px; display: inline-block; margin-bottom: 5px; }
+"""
 
-# --- 보안 및 API 설정 ---
+# 모드별 레이아웃 CSS 동적 분기
+if st.session_state.view_mode == "MULTI":
+    layout_css = ".block-container { padding: 0rem !important; margin: 0rem !important; max-width: 100% !important; }"
+else:
+    layout_css = ".block-container { padding: 3rem 2rem !important; max-width: 1200px !important; }"
+
+st.markdown(f"<style>{base_css} {layout_css}</style>", unsafe_allow_html=True)
+
+# --- API 설정 ---
 try:
     NAVER_CLIENT_ID = st.secrets["NAVER_CLIENT_ID"]
     NAVER_CLIENT_SECRET = st.secrets["NAVER_CLIENT_SECRET"]
@@ -139,7 +92,7 @@ CATEGORY_KEYWORDS = {
     "유사수신": ["상장 예정 코인", "원금보장 투자", "스테이킹 사기", "프라이빗 세일 사기", "다단계 코인"]
 }
 
-# --- 사이드바 구성 ---
+# --- 사이드바 ---
 with st.sidebar:
     st.markdown("""
         <div class="apple-title-box">
@@ -155,20 +108,25 @@ with st.sidebar:
     
     if st.button("AI 분석 모드 열기", key="btn_ai"):
         st.session_state.view_mode = "AI"
+        st.rerun()
 
     st.markdown("<div style='margin-top:30px;'></div>", unsafe_allow_html=True)
     st.markdown("<h4 style='font-size:14px; color:#1D1D1F;'>🔍 통합 다중 검색 (4분할)</h4>", unsafe_allow_html=True)
-    multi_query = st.text_input("검색어 입력 후 엔터", placeholder="예: 선이자", key="multi_search_input")
     
-    if multi_query:
+    with st.form(key="multi_search_form"):
+        multi_query = st.text_input("검색어 입력 후 엔터", placeholder="예: 선이자")
+        submit_btn = st.form_submit_button("검색")
+        
+    if submit_btn and multi_query:
+        st.session_state.multi_query = multi_query
         st.session_state.view_mode = "MULTI"
+        st.rerun()
 
-if 'view_mode' not in st.session_state:
-    st.session_state.view_mode = "AI"
+# --- 메인 화면 렌더링 ---
 
-# --- [VIEW 1] 4분할 다중 검색 모드 ---
-if st.session_state.view_mode == "MULTI" and multi_query:
-    q = quote(multi_query)
+# [VIEW 1] 4분할 다중 검색 모드
+if st.session_state.view_mode == "MULTI" and "multi_query" in st.session_state:
+    q = quote(st.session_state.multi_query)
     urls = [
         f"https://m.search.naver.com/search.naver?query={q}",
         f"https://www.google.com/search?q={q}&igu=1",
@@ -185,7 +143,7 @@ if st.session_state.view_mode == "MULTI" and multi_query:
     """
     st.markdown(html_code, unsafe_allow_html=True)
 
-# --- [VIEW 2] AI 정밀 모니터링 모드 ---
+# [VIEW 2] AI 정밀 모니터링 모드
 else:
     def search_naver(category, query, display=35):
         url = f"https://openapi.naver.com/v1/search/{category}.json"
@@ -206,7 +164,7 @@ else:
         - 추출: 글에 언급된 구체적 코인명, 플랫폼명, 가명(OO팀장 등), 사이트 주소
         제목: {title}
         내용: {desc}
-        출력 형식: {{"status": "INFO" 또는 "AD", "entities": ["키워드1", "키워드2"]}}
+        출력 형식: {{"status": "INFO", "entities": ["키워드1"]}}
         """
         try:
             response = model.generate_content(prompt)
@@ -221,14 +179,15 @@ else:
         elif category == 'cafearticle': return "<span style='color:#FF3B30; font-weight:700;'>[카페]</span>"
         return "<span style='color:#8E8E93; font-weight:700;'>[기타]</span>"
 
-    st.markdown(f"<div class='ai-result-container'><h2 style='color:#1D1D1F; font-weight:800; letter-spacing:-1px;'>🤖 {selected_category} AI 정밀 분석 모드</h2><p style='color:#86868B;'>우측 하단 검색창에 단어를 입력하면 4분할 화면으로 전환됩니다.</p><br>", unsafe_allow_html=True)
+    st.markdown(f"<h2 style='color:#1D1D1F; font-weight:800; letter-spacing:-1px; margin-bottom:10px;'>🤖 {selected_category} AI 정밀 분석 모드</h2>", unsafe_allow_html=True)
+    st.markdown("<p style='color:#86868B; margin-bottom:30px;'>우측 하단 검색창에 단어를 입력하면 4분할 화면으로 전환됩니다.</p>", unsafe_allow_html=True)
     
     if st.button("🚀 정밀 분석 실행", key="run_ai_btn"):
         raw_results = []
         base_kws = [k.strip() for k in current_keywords.split(",") if k.strip()]
         mand_kws = [m.strip() for m in mandatory_keywords.split(",") if m.strip()]
         
-        with st.spinner("가비지 데이터를 걸러내고 핵심 개체를 추출 중입니다..."):
+        with st.spinner("데이터를 수집하고 분석 중입니다..."):
             search_queries = [f"{b} {m}" for b in base_kws for m in mand_kws] if mand_kws else base_kws
 
             for query in search_queries:
@@ -265,9 +224,9 @@ else:
                     final_display.append(item)
 
             if not final_display:
-                st.warning("유효한 데이터가 없습니다. 필수 포함 단어를 조정해 보세요.")
+                st.warning("유효한 데이터가 없습니다.")
             else:
-                st.success(f"필터링 완료. {len(final_display)}건의 주요 정보가 추출되었습니다.")
+                st.success(f"분석 완료. {len(final_display)}건의 데이터가 추출되었습니다.")
                 for item in final_display:
                     with st.container():
                         st.markdown(f"{get_badge(item['category'])} <a href='{item['link']}' target='_blank' style='text-decoration:none; color:#1D1D1F; font-size:16px; font-weight:600;'>{item['title']}</a> <span style='float:right; font-size:12px; color:#86868B;'>{item['date_str']}</span>", unsafe_allow_html=True)
@@ -278,4 +237,3 @@ else:
                         
                         st.markdown(f"<div style='font-size:13px; color:#444; background-color:#FFFFFF; border:1px solid #E5E5EA; padding:10px 12px; border-radius:10px; margin-top:6px; box-shadow:0 1px 3px rgba(0,0,0,0.02);'><b>출처: {item['source']}</b><br><span style='color:#666;'>{item['desc']}</span></div>", unsafe_allow_html=True)
                         st.markdown("<div style='height:20px;'></div>", unsafe_allow_html=True)
-    st.markdown("</div>", unsafe_allow_html=True)
