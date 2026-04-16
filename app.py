@@ -5,17 +5,21 @@ from datetime import datetime, timezone, timedelta
 from urllib.parse import urlparse
 from difflib import SequenceMatcher
 
-# --- UI 및 여백, 기본 메뉴 숨김 CSS 설정 (상단 여백 축소 및 아이콘 제거) ---
+# --- UI 최적화 및 여백 제거 CSS ---
 st.set_page_config(page_title="Fin-Light | 민생금융범죄 모니터링", layout="wide")
 st.markdown("""
     <style>
-        .block-container {
-            padding-top: 1.5rem;
-            padding-bottom: 0rem;
-        }
-        #MainMenu {visibility: hidden;} /* 우측 상단 햄버거 메뉴 숨김 */
-        header {visibility: hidden;} /* 헤더 전체 숨김 (깃허브 아이콘 포함) */
-        footer {visibility: hidden;} /* 하단 Streamlit 워터마크 숨김 */
+        /* 메인 상단 여백 제거 */
+        .block-container { padding-top: 0rem; padding-bottom: 0rem; }
+        /* 사이드바 상단 여백 제거 */
+        [data-testid="stSidebarNav"] { padding-top: 0rem; }
+        [data-testid="stSidebar"] .st-emotion-cache-6qob1r { padding-top: 1rem; }
+        /* 기본 메뉴 숨김 */
+        #MainMenu {visibility: hidden;}
+        header {visibility: hidden;}
+        footer {visibility: hidden;}
+        /* 검색 버튼 스타일 */
+        .stButton>button { width: 100%; border-radius: 5px; background-color: #FF4B4B; color: white; }
     </style>
 """, unsafe_allow_html=True)
 
@@ -32,209 +36,157 @@ except (KeyError, FileNotFoundError):
 genai.configure(api_key=GEMINI_API_KEY)
 model = genai.GenerativeModel('gemini-1.5-flash')
 
-# --- 데이터 구조 (카테고리별 키워드) ---
+# --- 타겟 카페 설정 ---
+TARGET_CAFES = {
+    "불법사금융": "sachaesingo", # 불법사금융 피해자 모임
+    "리딩방": "notouch7",      # 유사수신 행위 등 투자사기 피해자 모임
+    "유사수신": "notouch7"
+}
+
 CATEGORY_KEYWORDS = {
     "불법사금융": ["불법사금융", "작업대출", "대리입금", "내구제대출"],
     "리딩방": ["리딩방", "주식 리딩", "코인 리딩", "비상장주식"],
-    "유사수신": ["유사수신", "원금보장", "폰지사기"]
+    "유사수신": ["유사수신", "원금보장", "폰지사기", "피라미드 사기"]
 }
 
-# --- 사이드바 설정 ---
+# --- 사이드바 ---
 with st.sidebar:
-    st.title("메뉴")
-    selected_category = st.radio(
-        "모니터링 카테고리 선택",
-        options=list(CATEGORY_KEYWORDS.keys())
-    )
+    st.markdown("<h2 style='margin-top:0;'>🔦 Fin-Light</h2>", unsafe_allow_html=True)
+    selected_category = st.radio("카테고리 선택", options=list(CATEGORY_KEYWORDS.keys()))
     
     st.divider()
-    st.subheader("⚙️ 검색 설정")
-    st.write(f"**[{selected_category}]** 관련 기본 키워드:")
-    current_keywords = st.text_area("쉼표로 구분하여 수정 가능", value=", ".join(CATEGORY_KEYWORDS[selected_category]), height=80)
+    st.subheader("⚙️ 모니터링 설정")
+    current_keywords = st.text_area("검색 키워드", value=", ".join(CATEGORY_KEYWORDS[selected_category]), height=70)
+    mandatory_keywords = st.text_input("필수 조합 단어", value="송치, 검거")
     
-    st.subheader("필수 검색 단어")
-    mandatory_keywords = st.text_input("항상 조합해서 스크롤링할 단어", value="송치, 검거")
-    
-    st.divider()
-    st.info("💡 AI가 법무법인 홍보, 대출 안내, 피해구제 상담 등의 광고성 글을 자동 제외합니다.")
+    st.caption(f"💡 현재 카테고리는 카페 **'{TARGET_CAFES[selected_category]}'** 글을 우선 수집합니다.")
 
-# --- 유틸리티 함수 ---
-def parse_and_format_date(date_str, category):
-    """문자열 날짜를 datetime 객체로 변환하고 포맷팅 (정렬 및 출력용)"""
+# --- 함수 정의 ---
+def parse_date(date_str, category):
     KST = timezone(timedelta(hours=9))
     if category == 'news':
         try:
-            # 뉴스: Thu, 16 Apr 2026 11:53:10 +0900
             dt = datetime.strptime(date_str, "%a, %d %b %Y %H:%M:%S %z")
             return dt, dt.strftime("%Y-%m-%d %H:%M")
-        except: 
-            return datetime.now(KST), date_str
+        except: return datetime.now(KST), date_str
     else:
         try:
-            # 블로그/카페: 20260416 (시간 데이터 없음 -> 정렬을 위해 해당 일자의 23시 59분으로 간주)
             if len(date_str) == 8:
                 dt = datetime(int(date_str[:4]), int(date_str[4:6]), int(date_str[6:]), 23, 59, 59, tzinfo=KST)
                 return dt, f"{date_str[:4]}-{date_str[4:6]}-{date_str[6:]}"
             return datetime.now(KST), date_str
-        except: 
-            return datetime.now(KST), date_str
+        except: return datetime.now(KST), date_str
 
-def get_category_badge(category):
-    """OS 호환성을 위해 이모지 대신 CSS 텍스트 배지 사용"""
+def get_badge(category):
     if category == 'news': return "<span style='color:#0058CB; font-weight:bold;'>[뉴스]</span>"
     elif category == 'blog': return "<span style='color:#03C75A; font-weight:bold;'>[블로그]</span>"
     elif category == 'cafearticle': return "<span style='color:#FF5A5A; font-weight:bold;'>[카페]</span>"
-    return "<span style='color:gray; font-weight:bold;'>[기타]</span>"
+    return "[기타]"
 
 def extract_source(item, category):
-    """출처 정보 추출 (언론사 도메인, 블로그 작성자, 카페명)"""
     if category == 'news':
-        try:
-            domain = urlparse(item['originallink']).netloc
-            return domain.replace("www.", "")
+        try: return urlparse(item['originallink']).netloc.replace("www.", "")
         except: return "뉴스"
-    elif category == 'blog':
-        return item.get('bloggername', '알 수 없는 블로거')
-    elif category == 'cafearticle':
-        return item.get('cafename', '알 수 없는 카페')
-    return "알 수 없음"
+    return item.get('bloggername' if category == 'blog' else 'cafename', '알 수 없음')
 
-def search_naver(category, query, display=15):
-    """네이버 검색 API 호출"""
+def search_naver(category, query, display=30):
     url = f"https://openapi.naver.com/v1/search/{category}.json"
     headers = {"X-Naver-Client-Id": NAVER_CLIENT_ID, "X-Naver-Client-Secret": NAVER_CLIENT_SECRET}
     params = {"query": query, "display": display, "sort": "date"}
     response = requests.get(url, headers=headers, params=params)
-    if response.status_code == 200:
-        return response.json().get('items', [])
-    return []
+    return response.json().get('items', []) if response.status_code == 200 else []
 
-def is_ad_by_gemini(title, description):
-    """Gemini AI를 이용한 광고 여부 판별"""
+def classify_content(title, desc, category_name):
+    """Gemini를 이용한 정밀 분류: 대응 방법 안내(AD) vs 사건보도/피해자질문(INFO)"""
     prompt = f"""
-    당신은 민생금융범죄 모니터링 요원입니다.
-    
-    [판별 기준]
-    1. 순수 정보성 기사, 범인 검거 및 송치 뉴스, 실제 피해자의 순수 정보 공유글은 'INFO'
-    2. 법무법인/변호사의 홍보 및 상담 유도글은 'AD'
-    3. '불법사금융예방대출' 등 대출을 알선하거나 권유하는 글은 'AD'
-    4. '피해구제 상담', '법적 대응'을 도와주겠다며 특정 오픈채팅이나 연락처로 유인하는 글은 'AD'
-    
+    당신은 금융범죄 수사 모니터링 전문가입니다. 다음 글이 '{category_name}' 범죄와 직접 관련이 있는지, 그리고 광고성인지 판별하세요.
+
+    [제외 대상 - 'AD']
+    1. 법무법인, 변호사가 작성한 '대응 방법 안내', '피해 구제 절차' 홍보글.
+    2. '불법사금융 예방 대출' 등 대출 광고.
+    3. 해당 범죄({category_name})와 상관없는 일반 강력 범죄(살인, 절도 등) 뉴스.
+
+    [포함 대상 - 'INFO']
+    1. {category_name} 관련 범인 검거, 검찰 송치 뉴스.
+    2. 피해자가 자신의 상황을 설명하며 "어떻게 해야 하나요?"라고 '질문'하는 글.
+    3. 실제 피해 수법을 공유하는 글.
+
     제목: {title}
-    내용: {description}
-    결과값: (오직 'AD' 또는 'INFO' 만 출력)
-    """
+    내용: {desc}
+    결과(AD/INFO):"""
+    
     try:
         response = model.generate_content(prompt)
-        return "AD" in response.text.strip().upper()
-    except:
-        return False
+        return "AD" not in response.text.strip().upper()
+    except: return True
 
-# --- 메인 화면 ---
-st.title("🔦 Fin-Light | 모니터링 대시보드")
-st.markdown(f"**현재 모니터링 중인 카테고리:** `{selected_category}`")
+# --- 메인 로직 ---
+st.markdown("<h3 style='margin-bottom:0;'>💡 Fin-Light | 모니터링 대시보드</h3>", unsafe_allow_html=True)
 
-if st.button("🚀 데이터 수집 및 분석 시작", type="primary"):
+if st.button("🚀 모니터링 시작"):
     raw_results = []
-    
     base_kws = [k.strip() for k in current_keywords.split(",") if k.strip()]
     mand_kws = [m.strip() for m in mandatory_keywords.split(",") if m.strip()]
     
-    # 기본 키워드와 필수 검색 단어 조합 생성 (예: "불법사금융 송치", "작업대출 검거")
-    search_queries = []
-    if mand_kws:
+    with st.spinner("최신 데이터를 분석 중입니다..."):
+        # 1. 특정 카페 우선 수집 및 키워드 조합 검색
+        target_cafe_id = TARGET_CAFES[selected_category]
+        
         for b_kw in base_kws:
+            # 타겟 카페 글 수집 (검색어에 카페 ID 조합)
+            cafe_items = search_naver('cafearticle', f"cafe.naver.com/{target_cafe_id} {b_kw}")
+            
+            # 뉴스 및 블로그 (송치/검거 조합)
+            other_items = []
             for m_kw in mand_kws:
-                search_queries.append(f"{b_kw} {m_kw}")
-    else:
-        search_queries = base_kws
-
-    with st.spinner("네이버 API에서 데이터를 수집하고 AI 필터링을 진행 중입니다..."):
-        # 1. 데이터 수집
-        for query in search_queries:
-            for cat in ['news', 'blog', 'cafearticle']:
-                items = search_naver(cat, query)
-                for item in items:
-                    title = item['title'].replace("<b>", "").replace("</b>", "").replace("&quot;", "'")
-                    desc = item['description'].replace("<b>", "").replace("</b>", "").replace("&quot;", "'")
-                    
-                    date_key = 'pubDate' if cat == 'news' else 'postdate'
-                    dt_obj, str_date = parse_and_format_date(item.get(date_key, ''), cat)
-                    source_name = extract_source(item, cat)
-                    
-                    raw_results.append({
-                        'category': cat,
-                        'query': query,
-                        'title': title,
-                        'desc': desc,
-                        'link': item['link'],
-                        'datetime': dt_obj, # 정렬을 위한 객체
-                        'date_str': str_date, # 출력을 위한 문자열
-                        'source': source_name
-                    })
-
-        # 2. 하드 광고 필터 및 AI 필터링
-        filtered_results = []
-        # 중복 URL 제거를 위한 세트
-        seen_links = set()
-        
-        for item in raw_results:
-            if item['link'] in seen_links: continue
-            seen_links.add(item['link'])
+                other_items.extend(search_naver('news', f"{b_kw} {m_kw}"))
+                other_items.extend(search_naver('blog', f"{b_kw} {m_kw}"))
             
-            # 1차 하드 필터 (비용 절감)
-            hard_ads_keywords = ["예방대출", "피해구제 상담", "법무법인", "무료상담"]
-            if any(ad_kw in item['title'] or ad_kw in item['desc'] for ad_kw in hard_ads_keywords):
-                continue
+            for item in (cafe_items + other_items):
+                cat = 'news' if 'originallink' in item else ('blog' if 'bloggername' in item else 'cafearticle')
                 
-            # 2차 AI 필터
-            if not is_ad_by_gemini(item['title'], item['desc']):
-                filtered_results.append(item)
+                # 링크 분석을 통한 특정 카페글 강제 포함 여부 확인
+                is_target_cafe = target_cafe_id in item['link']
+                
+                title = item['title'].replace("<b>", "").replace("</b>", "").replace("&quot;", "'")
+                desc = item['description'].replace("<b>", "").replace("</b>", "").replace("&quot;", "'")
+                
+                dt_obj, str_date = parse_date(item.get('pubDate' if cat == 'news' else 'postdate', ''), cat)
+                
+                raw_results.append({
+                    'category': cat,
+                    'title': title,
+                    'desc': desc,
+                    'link': item['link'],
+                    'datetime': dt_obj,
+                    'date_str': str_date,
+                    'source': extract_source(item, cat),
+                    'is_target_cafe': is_target_cafe
+                })
 
-        # 3. 시간순 정렬 및 클러스터링 로직 수정 (시간순 우선)
-        # 전체를 먼저 시간순(최신순)으로 정렬합니다.
-        filtered_results.sort(key=lambda x: x['datetime'], reverse=True)
-        
-        grouped_results = []
-        for item in filtered_results:
-            found_group = False
-            for group in grouped_results:
-                # 첫 번째(가장 최신) 기사와 제목 유사도가 0.5 이상이면 같은 이슈로 묶음
-                if SequenceMatcher(None, item['title'], group[0]['title']).ratio() > 0.5:
-                    group.append(item)
-                    found_group = True
-                    break
-            if not found_group:
-                grouped_results.append([item])
-        
-        # --- 결과 출력 ---
-        if not grouped_results:
-            st.warning("조건에 맞는 수집된 데이터가 없습니다.")
+        # 2. 중복 제거 및 정렬
+        unique_results = {it['link']: it for it in raw_results}.values()
+        sorted_results = sorted(unique_results, key=lambda x: x['datetime'], reverse=True)
+
+        # 3. AI 정밀 필터링 (타겟 카페 글은 필터링 완화, 뉴스는 엄격히)
+        final_display = []
+        for item in sorted_results:
+            # 타겟 카페 글은 웬만하면 포함, 그 외는 AI 분류
+            if item['is_target_cafe'] or classify_content(item['title'], item['desc'], selected_category):
+                final_display.append(item)
+
+        # 4. 출력
+        if not final_display:
+            st.warning("분석 결과 표시할 내용이 없습니다.")
         else:
-            st.success(f"시간순으로 정렬된 총 {len(grouped_results)}개의 주요 이슈가 발견되었습니다.")
-            
-            for group in grouped_results:
-                main_item = group[0]
-                badge = get_category_badge(main_item['category'])
-                
+            for item in final_display[:40]: # 상위 40개
                 with st.container():
-                    col_badge, col_title, col_date = st.columns([1, 7, 2])
-                    with col_badge:
-                        st.markdown(badge, unsafe_allow_html=True)
-                    with col_title:
-                        st.markdown(f"**[{main_item['title']}]({main_item['link']})**")
-                    with col_date:
-                        st.caption(f"{main_item['date_str']}")
+                    c1, c2, c3 = st.columns([1, 7, 2])
+                    c1.markdown(get_badge(item['category']), unsafe_allow_html=True)
+                    c2.markdown(f"**[{item['title']}]({item['link']})**")
+                    c3.caption(item['date_str'])
                     
-                    # 출처 및 본문 표시
-                    st.write(f"<span style='color:#555555; font-size:14px'>**출처: {main_item['source']}** | {main_item['desc']}</span>", unsafe_allow_html=True)
-                    
-                    if len(group) > 1:
-                        with st.expander(f"🔗 비슷한 내용의 다른 출처 글 {len(group)-1}개 더보기 (시간순)"):
-                            for sub_item in group[1:]:
-                                sub_badge = get_category_badge(sub_item['category'])
-                                st.markdown(f"{sub_badge} [{sub_item['title']}]({sub_item['link']}) | {sub_item['source']} | <span style='font-size:12px; color:gray'>{sub_item['date_str']}</span>", unsafe_allow_html=True)
+                    # 출처 강조 및 본문
+                    source_style = "background-color:#F0F2F6; padding:2px 5px; border-radius:3px; font-weight:bold;"
+                    st.markdown(f"<div style='font-size:13px; color:#444;'><span style='{source_style}'>{item['source']}</span> {item['desc']}</div>", unsafe_allow_html=True)
                     st.divider()
-
-else:
-    st.info("좌측 메뉴에서 카테고리와 키워드를 설정한 후 [데이터 수집 및 분석 시작] 버튼을 클릭하세요.")
