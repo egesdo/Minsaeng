@@ -11,7 +11,7 @@ from difflib import SequenceMatcher
 # --- 1. 기본 설정 ---
 st.set_page_config(page_title="Fin-Light | 모니터링 시스템", layout="wide", initial_sidebar_state="expanded")
 
-# --- 2. 최적화된 애플 스타일 CSS ---
+# --- 2. 최적화된 애플 스타일 CSS 및 사이드바 버튼 강제 삭제 ---
 st.markdown("""
     <style>
     @import url('https://cdn.jsdelivr.net/gh/orioncactus/pretendard/dist/web/variable/pretendardvariable.css');
@@ -19,7 +19,10 @@ st.markdown("""
     
     /* 거슬리는 UI 요소 완벽 제거 */
     header[data-testid="stHeader"], footer, .stDeployButton, #MainMenu { display: none !important; } 
-    [data-testid="collapsedControl"] { display: none !important; } /* 사이드바 접기(<<) 버튼 제거 */
+    
+    /* 🚨 사이드바 접기(<<) 및 펼치기(>) 버튼 영구 삭제 (모든 가능한 속성 타겟팅) 🚨 */
+    [data-testid="collapsedControl"] { display: none !important; width: 0px !important; height: 0px !important; pointer-events: none !important; }
+    button[kind="header"] { display: none !important; }
     
     /* 사이드바 여백 완전 제거 및 고정 */
     [data-testid="stSidebar"] { background-color: #FFFFFF !important; border-right: 1px solid #E5E5EA !important; min-width: 320px !important; }
@@ -31,9 +34,7 @@ st.markdown("""
     /* 입력창 및 공통 버튼 디자인 */
     .stTextInput input, .stTextArea textarea, .stSelectbox > div > div { border-radius: 12px !important; border: 1px solid #D2D2D7 !important; }
     
-    /* 아빠맵 스타일 필터 버튼 (Pill-shaped toggle) CSS 숨김 처리 후 Custom HTML 사용 */
-    
-    /* 실행 버튼 스타일 (애플 감성 강조) */
+    /* 실행 버튼 스타일 */
     .stButton > button { 
         border-radius: 980px !important; 
         background-color: #0071E3 !important; 
@@ -56,13 +57,13 @@ st.markdown("""
     .entity-tag { background-color: #E6F3FF; color: #0066CC; padding: 4px 8px; border-radius: 6px; font-size: 12px; font-weight: 700; margin-right: 6px; margin-bottom: 6px; display: inline-block; }
     .result-card { background-color: #FFFFFF; border: 1px solid #E0E0E0; border-radius: 10px; padding: 16px; margin-top: 10px; box-shadow: 0 2px 5px rgba(0,0,0,0.03); }
     
-    /* 8분할 화면용 그리드 (스크롤 허용) */
+    /* 8분할 화면용 그리드 */
     .perfect-grid { display: flex; flex-wrap: wrap; width: 100%; gap: 10px; margin-top: 10px; }
     .perfect-grid iframe { width: calc(50% - 5px); height: 45vh; border: 1px solid #E5E5EA; border-radius: 8px; box-sizing: border-box; background-color: #FFFFFF; }
     </style>
 """, unsafe_allow_html=True)
 
-# --- 3. 상태 관리 (아빠맵 스타일 탭) ---
+# --- 3. 상태 관리 ---
 if 'active_tab' not in st.session_state:
     st.session_state.active_tab = "AI_MODE"
 
@@ -93,22 +94,17 @@ with st.sidebar:
         </div>
     """, unsafe_allow_html=True)
     
-    # 아빠맵 스타일 커스텀 버튼 렌더링
     col1, col2 = st.columns(2)
     with col1:
         is_ai = st.session_state.active_tab == "AI_MODE"
-        st.button("AI 모니터링", on_click=set_tab, args=("AI_MODE",), 
-                  type="primary" if is_ai else "secondary", use_container_width=True)
+        st.button("AI 모니터링", on_click=set_tab, args=("AI_MODE",), type="primary" if is_ai else "secondary", use_container_width=True)
     with col2:
         is_search = st.session_state.active_tab == "SEARCH_MODE"
-        st.button("통합 검색", on_click=set_tab, args=("SEARCH_MODE",), 
-                  type="primary" if is_search else "secondary", use_container_width=True)
+        st.button("통합 검색", on_click=set_tab, args=("SEARCH_MODE",), type="primary" if is_search else "secondary", use_container_width=True)
     
     st.divider()
 
-    # 모드에 따른 사이드바 UI 동적 렌더링
     if st.session_state.active_tab == "AI_MODE":
-        # 실행 버튼을 최상단으로 배치
         run_btn = st.button("🚀 정밀 분석 실행")
         st.markdown("<br>", unsafe_allow_html=True)
         
@@ -128,7 +124,7 @@ with st.sidebar:
         mandatory_keywords = st.text_input("필수 포함 단어", value="송치, 검거, 구속, 피해")
         date_filter = st.selectbox("검색 기간", ["최근 1개월", "최근 3개월", "최근 1년", "전체"])
         
-    else: # SEARCH_MODE
+    else:
         st.markdown("<h4 style='font-size:15px; color:#1D1D1F;'>🔍 8분할 검색 설정</h4>", unsafe_allow_html=True)
         with st.form("multi_search_form"):
             multi_query = st.text_input("검색어", placeholder="예: 불법사금융 송치", label_visibility="collapsed")
@@ -269,26 +265,22 @@ elif st.session_state.active_tab == "SEARCH_MODE":
     
     if 'search_submitted' in locals() and search_submitted and multi_query:
         q = urllib.parse.quote(multi_query)
-        # 커뮤니티용 Google Site 검색 쿼리
         q_dc = urllib.parse.quote(f"site:gall.dcinside.com {multi_query}")
         q_fm = urllib.parse.quote(f"site:fmkorea.com {multi_query}")
         q_ruli = urllib.parse.quote(f"site:bbs.ruliweb.com {multi_query}")
         q_clien = urllib.parse.quote(f"site:clien.net {multi_query}")
         
         urls = [
-            # 포털 4개
             f"https://m.search.naver.com/search.naver?query={q}",
             f"https://m.search.daum.net/search?w=tot&q={q}",
             f"https://www.google.com/search?q={q}&igu=1",
             f"https://www.bing.com/search?q={q}",
-            # 커뮤니티 4개 (구글 엔진 활용)
             f"https://www.google.com/search?q={q_dc}&igu=1",
             f"https://www.google.com/search?q={q_fm}&igu=1",
             f"https://www.google.com/search?q={q_ruli}&igu=1",
             f"https://www.google.com/search?q={q_clien}&igu=1"
         ]
         
-        # 8분할 화면 렌더링 (각각 제목 표시)
         st.markdown(f"""
             <div class="perfect-grid">
                 <div style="width: calc(50% - 5px);"><div style="font-weight:bold; color:#03C75A; margin-bottom:5px;">🟢 네이버</div><iframe src="{urls[0]}" style="width:100%; height:45vh; border: 1px solid #E5E5EA; border-radius: 8px;"></iframe></div>
@@ -302,4 +294,4 @@ elif st.session_state.active_tab == "SEARCH_MODE":
             </div>
         """, unsafe_allow_html=True)
     else:
-        st.info("좌측 하단 검색창에 검색어를 입력하고 실행 버튼을 눌러주세요.")
+        st.info("좌측 사이드바 하단에서 검색어를 입력하고 실행 버튼을 눌러주세요.")
