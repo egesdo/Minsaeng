@@ -3,16 +3,17 @@ import requests
 import google.generativeai as genai
 from datetime import datetime, timezone, timedelta
 from urllib.parse import urlparse
+import json
 
-# --- UI 최적화 ---
-st.set_page_config(page_title="Fin-Light | 민생금융범죄 모니터링", layout="wide")
+# --- UI 및 여백 설정 ---
+st.set_page_config(page_title="Fin-Light | 민생금융범죄 정밀 모니터링", layout="wide")
 st.markdown("""
     <style>
-        .block-container { padding-top: 0rem; padding-bottom: 0rem; }
+        .block-container { padding-top: 0.5rem; padding-bottom: 0rem; }
         [data-testid="stSidebarNav"] { padding-top: 0rem; }
-        [data-testid="stSidebar"] .st-emotion-cache-6qob1r { padding-top: 1rem; }
         #MainMenu, header, footer {visibility: hidden;}
         .stButton>button { width: 100%; border-radius: 5px; background-color: #FF4B4B; color: white; }
+        .entity-tag { background-color: #e1e4e8; color: #0366d6; padding: 2px 6px; border-radius: 4px; font-size: 11px; font-weight: bold; margin-right: 4px; }
     </style>
 """, unsafe_allow_html=True)
 
@@ -28,11 +29,11 @@ except:
 genai.configure(api_key=GEMINI_API_KEY)
 model = genai.GenerativeModel('gemini-1.5-flash')
 
-# --- 카테고리별 검색어 (따옴표 제거, 네이버 검색엔진 최적화) ---
+# --- 지능형 검색 키워드 설정 (피해 사례 분석 기반) ---
 CATEGORY_KEYWORDS = {
-    "불법사금융": ["불법사금융", "작업대출", "대리입금", "내구제대출"],
-    "리딩방": ["리딩방", "주식 리딩", "코인 리딩", "비상장주식 사기"],
-    "유사수신": ["유사수신", "폰지사기", "다단계 사기"]
+    "불법사금융": ["선이자", "연장비", "지각비", "수치심", "지인추심", "3050대출", "폰깡", "작업대출 후기", "대출중개사이트 사기", "대부중개사이트 피해"],
+    "리딩방": ["리딩방 입금", "출금거부", "환급수수료", "금융감독원 사칭", "교수 사칭", "보상절차 안내 사기", "코인 리딩방 피해"],
+    "유사수신": ["상장 예정 코인", "원금보장 투자", "스테이킹 사기", "프라이빗 세일 사기", "해외 거래소 사기", "다단계 코인"]
 }
 
 with st.sidebar:
@@ -40,73 +41,69 @@ with st.sidebar:
     selected_category = st.radio("카테고리 선택", options=list(CATEGORY_KEYWORDS.keys()))
     
     st.divider()
-    st.subheader("⚙️ 모니터링 설정")
-    current_keywords = st.text_area("검색 키워드", value=", ".join(CATEGORY_KEYWORDS[selected_category]), height=70)
-    mandatory_keywords = st.text_input("필수 포함 단어 (빈칸 가능)", value="송치, 검거")
+    st.subheader("⚙️ 검색 키워드 (지능형 자동 설정)")
+    current_keywords = st.text_area("검색어 (수정 가능)", value=", ".join(CATEGORY_KEYWORDS[selected_category]), height=100)
+    mandatory_keywords = st.text_input("필수 포함 단어", value="송치, 검거, 구속, 피해")
 
 def get_badge(category):
-    if category == 'news': return "<span style='color:#0058CB; font-weight:bold;'>[뉴스]</span>"
-    elif category == 'blog': return "<span style='color:#03C75A; font-weight:bold;'>[블로그]</span>"
-    elif category == 'cafearticle': return "<span style='color:#FF5A5A; font-weight:bold;'>[카페]</span>"
+    if category == 'news': return "<span style='color:#0058CB;'>[뉴스]</span>"
+    elif category == 'blog': return "<span style='color:#03C75A;'>[블로그]</span>"
+    elif category == 'cafearticle': return "<span style='color:#FF5A5A;'>[카페]</span>"
     return "[기타]"
 
-def search_naver(category, query, display=30):
-    url = f"https://openapi.naver.com/v1/search/{category}.json"
-    headers = {"X-Naver-Client-Id": NAVER_CLIENT_ID, "X-Naver-Client-Secret": NAVER_CLIENT_SECRET}
-    # 최신 기사를 놓치지 않기 위해 date(최신순) 정렬로 복구
-    params = {"query": query, "display": display, "sort": "date"} 
-    response = requests.get(url, headers=headers, params=params)
-    return response.json().get('items', []) if response.status_code == 200 else []
-
 def is_hard_ad(title, desc):
-    """1차 텍스트 필터: 절대 포함되면 안 되는 광고/무관 단어 차단"""
+    """법무법인 및 일반 광고성 글 초강력 필터링"""
     ad_keywords = [
-        "법무법인", "변호사", "법률사무소", "수임료", "승소", "고소대리", "오픈채팅", "무료상담", 
-        "택배", "기사님", "월매출", "야간", "고정", "대리운전", "탁송", "판매", "팝니다", "엘몰", "신발",
-        "챌린지", "신문읽기", "4차 산업혁명", "매일경제신문읽기"
+        "법무법인", "변호사", "법률사무소", "수임료", "승소", "고소대리", "상담문의", "해결사", 
+        "전문가 조력", "대응방법 안내", "성공사례", "판결문 분석", "무료법률상담", "오픈채팅",
+        "리딩방 사칭", "로맨스스캠 주의", "신종수법 안내" # 정보 공유를 가장한 일반적 공지글 제외
     ]
     text = title + desc
-    for kw in ad_keywords:
-        if kw in text: return True
-    return False
+    return any(kw in text for kw in ad_keywords)
 
-def classify_by_gemini(title, desc, category_name):
-    """2차 AI 필터: 실제 사건보도, 검거소식, 피해자 질문만 남김"""
+def analyze_with_gemini(title, desc, category_name):
+    """AI를 통한 정밀 분류 및 핵심 키워드(코인명, 인물 등) 추출"""
     prompt = f"""
-    이 글이 '{category_name}' 범죄 사건과 관련된 보도이거나, 피해자의 질문/호소 글인지 판별하라.
-    광고나 홍보, 변호사 글, 타 범죄, 일반 주식/가상화폐 뉴스, 단순 일상 글이면 무조건 'AD'로 답하라.
-    관련된 핵심 정보면 'INFO'로 답하라.
+    당신은 금융범죄 전문 분석가입니다. 아래 글을 분석하여 JSON 형식으로만 답변하세요.
+    
+    [판별 기준]
+    - 유효(INFO): 실제 사건 보도(검거/송치), 피해자가 구체적으로 올린 피해 호소 및 질문.
+    - 제외(AD): 법무법인 광고, 일반적인 범죄 수법 교육/공지글, 단순히 '사칭/스캠 주의'라고만 언급된 유용성 낮은 글.
+    
+    [추출]
+    - 글에서 언급된 구체적인 '코인명', '플랫폼명', '가명(OO팀장 등)', '사이트 주소'를 리스트로 추출하세요.
     
     제목: {title}
     내용: {desc}
-    답변(AD 또는 INFO):"""
+    
+    출력 형식: {{"status": "INFO" 또는 "AD", "entities": ["키워드1", "키워드2"]}}
+    """
     try:
-        res = model.generate_content(prompt)
-        return "AD" not in res.text.strip().upper(), ""
-    except Exception as e:
-        # API 할당량 초과 시 에러를 내지 않고 일단 통과시킴 (데이터 증발 방지)
-        return True, " ⚠️[AI 분석 지연]"
+        response = model.generate_content(prompt)
+        result = json.loads(response.text.strip().replace('```json', '').replace('```', ''))
+        return result.get("status") == "INFO", result.get("entities", [])
+    except:
+        return True, [] # 에러 시 데이터 보존을 위해 통과
 
-# --- 메인 로직 ---
-st.markdown(f"<h3 style='margin-bottom:0;'>💡 Fin-Light | {selected_category} 집중 모니터링</h3>", unsafe_allow_html=True)
+def search_naver(category, query, display=40):
+    url = f"https://openapi.naver.com/v1/search/{category}.json"
+    headers = {"X-Naver-Client-Id": NAVER_CLIENT_ID, "X-Naver-Client-Secret": NAVER_CLIENT_SECRET}
+    params = {"query": query, "display": display, "sort": "date"}
+    response = requests.get(url, headers=headers, params=params)
+    return response.json().get('items', []) if response.status_code == 200 else []
 
-if st.button("🚀 데이터 수집 및 정밀 분석 시작"):
+# --- 메인 실행 ---
+st.markdown(f"### 💡 {selected_category} 정밀 모니터링")
+
+if st.button("🚀 정밀 분석 시작"):
     raw_results = []
     base_kws = [k.strip() for k in current_keywords.split(",") if k.strip()]
     mand_kws = [m.strip() for m in mandatory_keywords.split(",") if m.strip()]
     
-    with st.spinner("데이터를 수집하고 핵심 정보만 추출 중입니다... (최대 1~2분 소요)"):
-        
-        # 검색 쿼리 조합
-        search_queries = []
-        if mand_kws:
-            for b_kw in base_kws:
-                for m_kw in mand_kws:
-                    search_queries.append(f"{b_kw} {m_kw}")
-        else:
-            search_queries = base_kws
+    with st.spinner("가비지 데이터를 걸러내고 핵심 개체를 추출 중입니다..."):
+        # 검색 쿼리 실행
+        search_queries = [f"{b} {m}" for b in base_kws for m in mand_kws] if mand_kws else base_kws
 
-        # 1. 네이버 데이터 수집
         for query in search_queries:
             for cat in ['news', 'blog', 'cafearticle']:
                 items = search_naver(cat, query)
@@ -114,56 +111,52 @@ if st.button("🚀 데이터 수집 및 정밀 분석 시작"):
                     title = item['title'].replace("<b>", "").replace("</b>", "").replace("&quot;", "'")
                     desc = item['description'].replace("<b>", "").replace("</b>", "").replace("&quot;", "'")
                     
-                    # 1차 초강력 하드 필터 (노이즈 즉시 제거)
                     if is_hard_ad(title, desc): continue
                     
-                    # pubDate/postdate 파싱하여 시간 포맷 통일
                     date_key = 'pubDate' if cat == 'news' else 'postdate'
                     raw_date = item.get(date_key, '')
                     
+                    # 날짜 가독성 처리
+                    try:
+                        if cat == 'news':
+                            dt = datetime.strptime(raw_date, "%a, %d %b %Y %H:%M:%S %z")
+                            date_str = dt.strftime("%Y-%m-%d %H:%M")
+                        else:
+                            date_str = f"{raw_date[:4]}-{raw_date[4:6]}-{raw_date[6:]}"
+                    except: date_str = raw_date
+
                     raw_results.append({
                         'category': cat, 'title': title, 'desc': desc, 'link': item['link'],
                         'source': urlparse(item['link']).netloc.replace("www.", "") if cat=='news' else item.get('bloggername' if cat=='blog' else 'cafename', '알 수 없음'),
-                        'raw_date': raw_date
+                        'date_str': date_str
                     })
 
-        # 중복 URL 제거
+        # 중복 제거 및 AI 분석
         unique_results = list({it['link']: it for it in raw_results}.values())
-
-        # 2. 스마트 필터링 처리 (AI 호출 최적화)
         final_display = []
-        
-        for item in unique_results:
-            text_to_check = item['title'] + item['desc']
-            ai_warning = ""
-            
-            # [프리패스 조건]: 필수 검색어(송치, 검거 등)가 본문에 명확히 있으면 AI 거치지 않고 바로 통과
-            # (API 비용과 할당량을 크게 아끼는 핵심 로직)
-            is_auto_pass = False
-            if mand_kws:
-                for mk in mand_kws:
-                    if mk in text_to_check:
-                        is_auto_pass = True
-                        break
-            
-            if is_auto_pass:
-                final_display.append((item, "")) # 통과
-            else:
-                # 불확실한 글만 AI에게 판별 요청
-                is_valid, warning = classify_by_gemini(item['title'], item['desc'], selected_category)
-                if is_valid:
-                    final_display.append((item, warning))
+        for item in unique_results[:50]: # 성능을 위해 상위 50건 분석
+            is_valid, entities = analyze_with_gemini(item['title'], item['desc'], selected_category)
+            if is_valid:
+                item['entities'] = entities
+                final_display.append(item)
 
-        # 3. 화면 출력
+        # 결과 출력
         if not final_display:
-            st.warning("조건에 맞는 유효한 데이터가 없습니다. 필수 포함 단어를 변경하거나 제거해보세요.")
+            st.warning("유효한 데이터가 없습니다. 검색 설정을 조정해 보세요.")
         else:
-            st.success(f"데이터 수집 완료. 총 {len(final_display)}건의 주요 정보를 찾았습니다.")
-            for data, warning in final_display[:40]: # 상위 40건 출력
-                item = data
+            for item in final_display:
                 with st.container():
-                    c1, c2 = st.columns([1, 9])
-                    c1.markdown(get_badge(item['category']), unsafe_allow_html=True)
-                    c2.markdown(f"**[{item['title']}]({item['link']})** <span style='color:red; font-size:12px;'>{warning}</span>", unsafe_allow_html=True)
-                    st.markdown(f"<div style='font-size:13px; color:#444; background-color:#F0F2F6; padding:5px; border-radius:5px;'><b>출처: {item['source']}</b> | {item['desc']}</div>", unsafe_allow_html=True)
+                    col_main, col_date = st.columns([8, 2])
+                    with col_main:
+                        badge = get_badge(item['category'])
+                        st.markdown(f"{badge} **[{item['title']}]({item['link']})**", unsafe_allow_html=True)
+                    with col_date:
+                        st.markdown(f"<p style='text-align:right; font-size:12px; color:gray;'>{item['date_str']}</p>", unsafe_allow_html=True)
+                    
+                    # 추출된 엔티티(코인명, 가명 등) 표시
+                    if item.get('entities'):
+                        entity_html = "".join([f"<span class='entity-tag'>{e}</span>" for e in item['entities']])
+                        st.markdown(entity_html, unsafe_allow_html=True)
+                    
+                    st.markdown(f"<div style='font-size:13px; color:#444; background-color:#F8F9FA; padding:8px; border-radius:5px; margin-top:5px;'><b>{item['source']}</b> | {item['desc']}</div>", unsafe_allow_html=True)
                     st.divider()
