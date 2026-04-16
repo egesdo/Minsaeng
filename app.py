@@ -12,7 +12,7 @@ st.set_page_config(page_title="Fin-Light | 통합 대시보드", layout="wide", 
 if 'view_mode' not in st.session_state:
     st.session_state.view_mode = "AI"
 
-# --- 안전한 Apple 스타일 CSS (레이아웃 충돌 방지) ---
+# --- 안전한 Apple 스타일 CSS ---
 base_css = """
     @import url('https://cdn.jsdelivr.net/gh/orioncactus/pretendard/dist/web/variable/pretendardvariable.css');
     html, body, .stApp {
@@ -35,7 +35,7 @@ base_css = """
         color: #FFFFFF !important;
         border: none !important;
         font-weight: 600 !important;
-        width: 100%;
+        padding: 0.5rem 1.5rem !important;
     }
     .stButton > button:hover { background-color: #0077ED !important; transform: scale(0.98); }
     
@@ -56,11 +56,12 @@ base_css = """
     .entity-tag { background-color: #E8F0FE; color: #1967D2; padding: 3px 8px; border-radius: 6px; font-size: 11px; font-weight: 700; margin-right: 5px; margin-bottom: 5px; display: inline-block; }
 """
 
-# 모드별 레이아웃을 다르게 적용하여 찌그러짐 방지
+# 💡 문제 해결 핵심: 모드별 패딩(여백) 명확한 분리 적용
 if st.session_state.view_mode == "MULTI":
-    layout_css = ".block-container { padding: 0rem !important; margin: 0rem !important; max-width: 100% !important; }"
+    layout_css = ".block-container { padding: 0rem !important; max-width: 100% !important; }"
 else:
-    layout_css = ".block-container { padding-top: 2rem !important; }"
+    # 좌우 여백을 5% 주어 왼쪽으로 쏠리는 현상을 완벽히 차단
+    layout_css = ".block-container { padding: 3rem 5% !important; max-width: 1300px !important; margin: 0 auto !important; }"
 
 st.markdown(f"<style>{base_css} {layout_css}</style>", unsafe_allow_html=True)
 
@@ -82,7 +83,7 @@ CATEGORY_KEYWORDS = {
     "유사수신": ["상장 예정 코인", "원금보장 투자", "스테이킹 사기", "프라이빗 세일 사기", "다단계 코인"]
 }
 
-# --- 날짜 파싱 함수 ---
+# --- 날짜 파싱 및 유사도 함수 ---
 def parse_date(date_str, category):
     KST = timezone(timedelta(hours=9))
     dt = datetime.now(KST)
@@ -97,7 +98,6 @@ def parse_date(date_str, category):
         except: pass
         return dt, dt.strftime("%Y-%m-%d")
 
-# --- 유사도 분석 함수 ---
 def is_similar(a, b, threshold=0.5):
     return SequenceMatcher(None, a, b).ratio() > threshold
 
@@ -115,7 +115,6 @@ with st.sidebar:
     current_keywords = st.text_area("AI 검색어", value=", ".join(CATEGORY_KEYWORDS[selected_category]), height=70)
     mandatory_keywords = st.text_input("필수 포함 단어", value="송치, 검거, 구속, 피해")
     
-    # 검색 기간 필터 추가
     date_filter = st.selectbox("검색 기간", ["최근 1개월", "최근 3개월", "최근 1년", "전체"])
     
     if st.button("AI 분석 모드 열기", key="btn_ai"):
@@ -217,7 +216,6 @@ else:
                         
                         dt_obj, date_str = parse_date(item.get('pubDate' if cat == 'news' else 'postdate', ''), cat)
                         
-                        # 날짜 필터 적용
                         if limit_date and dt_obj < limit_date:
                             continue
 
@@ -228,19 +226,16 @@ else:
                             'datetime': dt_obj
                         })
 
-            # 중복 제거 및 시간순 재정렬
             unique_results = list({it['link']: it for it in raw_results}.values())
             unique_results.sort(key=lambda x: x['datetime'], reverse=True)
             
             valid_results = []
-            # API 비용 및 시간 절약을 위해 상위 40건만 AI 판별
             for item in unique_results[:40]: 
                 is_valid, entities = analyze_with_gemini(item['title'], item['desc'])
                 if is_valid:
                     item['entities'] = entities
                     valid_results.append(item)
 
-            # 유사 기사 클러스터링 묶음 처리
             grouped_results = []
             for item in valid_results:
                 found_group = False
@@ -267,7 +262,6 @@ else:
                         
                         st.markdown(f"<div style='font-size:13px; color:#444; background-color:#FFFFFF; border:1px solid #E5E5EA; padding:10px 12px; border-radius:10px; margin-top:6px; box-shadow:0 1px 3px rgba(0,0,0,0.02);'><b>출처: {main_item['source']}</b><br><span style='color:#666;'>{main_item['desc']}</span></div>", unsafe_allow_html=True)
                         
-                        # 묶인 유사 기사 표시
                         if len(group) > 1:
                             with st.expander(f"🔗 비슷한 내용의 기사/글 {len(group)-1}개 더보기"):
                                 for sub_item in group[1:]:
